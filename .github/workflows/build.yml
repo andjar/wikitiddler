@@ -1,0 +1,70 @@
+name: Build and Deploy Wiki
+
+on:
+  # Run manually from the Actions tab
+  workflow_dispatch:
+  # Run automatically on the 1st of every month at 03:00 UTC
+  schedule:
+    - cron: '0 3 1 * *'
+
+# Required for the official GitHub Pages deploy action
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment; do not cancel in-progress deployments
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # -------------------------------------------------------------------------
+  # 1. Query Wikidata, generate tiddlers, and build the single-file wiki
+  # -------------------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate tiddlers from Wikidata
+        run: python scripts/sparql_to_tiddlers.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Build TiddlyWiki
+        run: npx tiddlywiki wiki --output dist --build index
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/
+
+  # -------------------------------------------------------------------------
+  # 2. Deploy the artifact to GitHub Pages
+  # -------------------------------------------------------------------------
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

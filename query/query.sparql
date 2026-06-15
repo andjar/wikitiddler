@@ -1,0 +1,81 @@
+# wikitiddler example query — Nobel Prize in Literature laureates
+#
+# Replace this file with your own SPARQL query.
+#
+# CONVENTIONS
+# -----------
+# 1.  ?item        (required) must be a full Wikidata entity URI:
+#                  http://www.wikidata.org/entity/Q<id>
+#
+# 2.  Multi-valued properties must be flattened in the query using:
+#                  GROUP_CONCAT(DISTINCT ?val; SEPARATOR="|") AS ?fieldname
+#     The Python script automatically converts pipe-separated values to
+#     TiddlyWiki list format: [[val1]] [[val2]] …
+#
+# 3.  When GROUP_CONCAT is used, all non-aggregated SELECT columns must appear
+#     in the GROUP BY clause.
+#
+# 4.  For human-readable labels in GROUP_CONCAT, fetch them explicitly using
+#     rdfs:label + FILTER rather than relying on SERVICE wikibase:label.
+#     The label service works for the main ?item but does NOT reliably populate
+#     label variables inside GROUP_CONCAT aggregates:
+#
+#       OPTIONAL {
+#         ?item wdt:P106 ?occupationItem .
+#         ?occupationItem rdfs:label ?occupationLabel .
+#         FILTER(LANG(?occupationLabel) = "en")
+#       }
+#       (GROUP_CONCAT(DISTINCT ?occupationLabel; SEPARATOR="|") AS ?occupations)
+#
+#     SERVICE wikibase:label is still used for ?itemLabel and ?itemDescription.
+#
+# 5.  A ?description column, if present, becomes the tiddler *body* rather
+#     than a named field.  Omit it if you do not need a body.
+#
+# 6.  Datetime columns (xsd:dateTime / xsd:date) are automatically converted
+#     by the Python script to TiddlyWiki format: YYYYMMDDhhmmssSSS
+
+SELECT
+  ?item
+  ?itemLabel
+  ?itemDescription
+  ?birthdate
+  ?deathdate
+  (GROUP_CONCAT(DISTINCT ?countryLabel;    SEPARATOR="|") AS ?nationalities)
+  (GROUP_CONCAT(DISTINCT ?occupationLabel; SEPARATOR="|") AS ?occupations)
+  (GROUP_CONCAT(DISTINCT ?awardYear;       SEPARATOR="|") AS ?awardyears)
+WHERE {
+  # All humans who received the Nobel Prize in Literature (Q37922)
+  ?item wdt:P31  wd:Q5      .   # instance of: human
+  ?item wdt:P166 wd:Q37922  .   # award: Nobel Prize in Literature
+
+  OPTIONAL { ?item wdt:P569 ?birthdate . }
+  OPTIONAL { ?item wdt:P570 ?deathdate . }
+
+  # Explicit rdfs:label lookups — required for correct GROUP_CONCAT behaviour
+  OPTIONAL {
+    ?item wdt:P27 ?countryItem .
+    ?countryItem rdfs:label ?countryLabel .
+    FILTER(LANG(?countryLabel) = "en")
+  }
+  OPTIONAL {
+    ?item wdt:P106 ?occupationItem .
+    ?occupationItem rdfs:label ?occupationLabel .
+    FILTER(LANG(?occupationLabel) = "en")
+  }
+
+  OPTIONAL {
+    ?item p:P166 ?awardStatement .
+    ?awardStatement ps:P166 wd:Q37922 .
+    OPTIONAL { ?awardStatement pq:P585 ?awardDate . }
+    BIND(IF(BOUND(?awardDate), STR(YEAR(?awardDate)), "") AS ?awardYear)
+  }
+
+  # Used for ?itemLabel and ?itemDescription only
+  SERVICE wikibase:label {
+    bd:serviceParam wikibase:language "en,fr,de" .
+  }
+}
+GROUP BY
+  ?item ?itemLabel ?itemDescription ?birthdate ?deathdate
+ORDER BY ?itemLabel

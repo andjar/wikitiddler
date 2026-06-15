@@ -1,0 +1,16 @@
+# Node
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.env
+
+# Generated tiddlers (recreated by the pipeline on every run)
+wiki/tiddlers/*.tid
+
+# OS
+.DS_Store
+Thumbs.db

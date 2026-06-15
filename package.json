@@ -1,0 +1,11 @@
+{
+  "name": "wikitiddler",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tiddlywiki wiki --output dist --build index"
+  },
+  "dependencies": {
+    "tiddlywiki": "^5.3.6"
+  }
+}
