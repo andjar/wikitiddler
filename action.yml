@@ -1,0 +1,90 @@
+name: 'wikitiddler'
+description: 'Query Wikidata via SPARQL and build a single-file TiddlyWiki'
+author: 'wikitiddler'
+branding:
+  icon: 'book-open'
+  color: 'orange'
+
+# ---------------------------------------------------------------------------
+# Inputs
+# ---------------------------------------------------------------------------
+inputs:
+  query-file:
+    description: 'Path to the SPARQL query file (relative to repository root)'
+    required: false
+    default: 'query/query.sparql'
+  templates-dir:
+    description: 'Directory containing TiddlyWiki template .tid files'
+    required: false
+    default: 'templates'
+  wiki-dir:
+    description: >
+      TiddlyWiki wiki directory. Must contain tiddlywiki.info, or a default one
+      will be copied from the action. Add your own tiddlywiki.info here to
+      customise plugins and themes.
+    required: false
+    default: 'wiki'
+  output-dir:
+    description: 'Directory for the built index.html (passed to --output)'
+    required: false
+    default: 'dist'
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+outputs:
+  output-dir:
+    description: 'Directory containing the built index.html'
+    value: ${{ inputs.output-dir }}
+
+# ---------------------------------------------------------------------------
+# Steps
+# ---------------------------------------------------------------------------
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Python dependencies
+      shell: bash
+      run: pip install -r "${{ github.action_path }}/requirements.txt"
+
+    - name: Prepare wiki directory
+      shell: bash
+      run: |
+        mkdir -p "${{ inputs.wiki-dir }}/tiddlers"
+        if [ ! -f "${{ inputs.wiki-dir }}/tiddlywiki.info" ]; then
+          cp "${{ github.action_path }}/wiki/tiddlywiki.info" \
+             "${{ inputs.wiki-dir }}/tiddlywiki.info"
+          echo "Installed default tiddlywiki.info into ${{ inputs.wiki-dir }}/"
+        else
+          echo "Using existing ${{ inputs.wiki-dir }}/tiddlywiki.info"
+        fi
+
+    - name: Generate tiddlers from Wikidata
+      shell: bash
+      env:
+        WIKITIDDLER_QUERY_FILE: ${{ inputs.query-file }}
+        WIKITIDDLER_OUTPUT_DIR: ${{ inputs.wiki-dir }}/tiddlers
+        WIKITIDDLER_TEMPLATES_DIR: ${{ inputs.templates-dir }}
+      run: python "${{ github.action_path }}/scripts/sparql_to_tiddlers.py"
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install Node.js dependencies
+      shell: bash
+      run: cd "${{ github.action_path }}" && npm ci
+
+    - name: Build TiddlyWiki
+      shell: bash
+      run: |
+        node "${{ github.action_path }}/node_modules/.bin/tiddlywiki" \
+          "${{ inputs.wiki-dir }}" \
+          --output "${{ inputs.output-dir }}" \
+          --build index

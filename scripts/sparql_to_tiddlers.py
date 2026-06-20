@@ -26,6 +26,7 @@ Template tiddlers in templates/ are copied verbatim into wiki/tiddlers/ so
 that TiddlyWiki picks them up in the build.
 """
 
+import os
 import re
 import shutil
 import sys
@@ -35,11 +36,12 @@ from pathlib import Path
 import requests
 
 # ---------------------------------------------------------------------------
-# Paths (relative to the repository root; run from there)
+# Paths — configurable via environment variables so the composite action can
+# pass custom values; fall back to the conventional defaults for local use.
 # ---------------------------------------------------------------------------
-QUERY_FILE = Path("query/query.sparql")
-OUTPUT_DIR = Path("wiki/tiddlers")
-TEMPLATES_DIR = Path("templates")
+QUERY_FILE = Path(os.environ.get("WIKITIDDLER_QUERY_FILE", "query/query.sparql"))
+OUTPUT_DIR = Path(os.environ.get("WIKITIDDLER_OUTPUT_DIR", "wiki/tiddlers"))
+TEMPLATES_DIR = Path(os.environ.get("WIKITIDDLER_TEMPLATES_DIR", "templates"))
 
 SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
 USER_AGENT = "wikitiddler/1.0 (https://github.com/wikitiddler)"

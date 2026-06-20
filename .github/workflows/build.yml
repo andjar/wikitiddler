@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   # -------------------------------------------------------------------------
-  # 1. Query Wikidata, generate tiddlers, and build the single-file wiki
+  # 1. Build the wiki using the wikitiddler composite action
   # -------------------------------------------------------------------------
   build:
     runs-on: ubuntu-latest
@@ -28,32 +28,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Generate tiddlers from Wikidata
-        run: python scripts/sparql_to_tiddlers.py
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Node.js dependencies
-        run: npm ci
-
-      - name: Build TiddlyWiki
-        run: npx tiddlywiki wiki --output dist --build index
+      - name: Build wiki
+        uses: ./        # Runs the composite action from this repository root
+        id: wiki
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist/
+          path: ${{ steps.wiki.outputs.output-dir }}/
 
   # -------------------------------------------------------------------------
   # 2. Deploy the artifact to GitHub Pages
