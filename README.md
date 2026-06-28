@@ -1,16 +1,20 @@
 # wikitiddler
 
-A GitHub Action that queries Wikidata via SPARQL, converts the results to
-TiddlyWiki tiddlers with Python, builds a single-file TiddlyWiki with Node.js,
-and deploys it to GitHub Pages — on a monthly schedule or on demand.
+A GitHub Action that extracts data from multiple sources (Wikidata SPARQL, JSON endpoints, RSS feeds), converts the results to TiddlyWiki tiddlers with Python, builds a single-file TiddlyWiki with Node.js, and deploys it to GitHub Pages — on a monthly schedule or on demand.
 
 ## How it works
 
 ```
-query/query.sparql
-      │  (SPARQL → Wikidata endpoint)
+query/
+├── 01_query.sparql
+├── 02_news.rss
+└── 03_data.json
+      │  (Multiple sources fetched by modular importers)
       ▼
-scripts/sparql_to_tiddlers.py   ←   templates/*.tid
+scripts/run_importers.py
+      │  (Standardized intermediate JSON)
+      ▼
+scripts/json_to_tiddlers.py   ←   templates/*.tid
       │  (one .tid file per item)
       ▼
 wiki/tiddlers/
@@ -30,16 +34,16 @@ dist/index.html  →  GitHub Pages
 
 Click **"Use this template"** at the top of this repository to create your
 own copy with a clean git history.  You get all the files; just edit the
-query and templates.
+queries and templates.
 
 > **Note:** You will not automatically receive updates to the pipeline
-> (Python script, workflow logic) if this repository improves.  Use
+> (Python scripts, workflow logic) if this repository improves.  Use
 > Option B if that matters to you.
 
 ### Option B — Reference the action (recommended for staying up to date)
 
 Create a minimal repository yourself.  The only files you need are your
-SPARQL query, your template tiddlers, and a workflow that calls this action.
+query configurations, your template tiddlers, and a workflow that calls this action.
 When this repository is updated, your next build automatically picks up the
 improvements — no changes to your repo required.
 
@@ -48,7 +52,8 @@ improvements — no changes to your repo required.
 ```
 my-wiki/
 ├── query/
-│   └── query.sparql           ← your SPARQL query
+│   ├── 01_query.sparql        ← your queries
+│   └── 02_news.rss
 ├── templates/                 ← your TiddlyWiki .tid files (optional)
 │   └── *.tid
 └── .github/
@@ -80,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: OWNER/wikitiddler@v1   # replace OWNER with this repo's owner
+      - uses: andjar/wikitiddler@v1
         id: wiki
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -102,57 +107,70 @@ your repo — the action provides everything.
 
 ---
 
-## First-time GitHub Pages setup
+## Multiple Queries and Importers
 
-In your repository **Settings → Pages → Source**, select **GitHub Actions**.
-Then go to **Actions → Build and Deploy Wiki → Run workflow** to build and
-publish your wiki for the first time.  It will be available at
-`https://<you>.github.io/<repo>/`.
+Wikitiddler processes files in the `query/` folder in **alphanumerical order**. 
+The extension of the file determines which importer is used. 
 
----
+Available importers:
+- **`.sparql`**: Queries Wikidata.
+- **`.json`**: Fetches a JSON URL or local file, uses JMESPath to extract items.
+- **`.rss`**: Fetches an RSS or Atom feed, uses JMESPath to extract items.
 
-## Triggering a build
+### 1. SPARQL Importer (`*.sparql`)
 
-| Method | How |
-|--------|-----|
-| Manual | Actions tab → *Build and Deploy Wiki* → **Run workflow** |
-| Scheduled | Automatically on the 1st of every month at 03:00 UTC |
+The query **must** include a column named `?item` containing full Wikidata
+entity URIs.
 
-To change the schedule, edit the `cron` value in your workflow file:
-
-```yaml
-schedule:
-  - cron: '0 3 1 * *'   # min hour day-of-month month weekday
+```sparql
+SELECT ?item ?itemLabel …
+WHERE {
+  ?item wdt:P31 wd:Q5 .   # your filter here
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
+}
 ```
 
----
+- Multi-valued properties must use `GROUP_CONCAT(DISTINCT ?val; SEPARATOR="|")`.
+- If a `?description` column is present, it becomes the tiddler **body**.
+- `xsd:dateTime` and `xsd:date` are automatically converted to TiddlyWiki format.
 
-## Action inputs
+### 2. JSON and RSS Importers (`*.json`, `*.rss`)
 
-All inputs are optional.
+These files use YAML configuration to define the source URL and field mapping using JMESPath. 
+Even though the extensions are `.json` or `.rss`, the content format is **YAML**.
 
-| Input | Default | Description |
-|-------|---------|-------------|
-| `query-file` | `query/query.sparql` | Path to the SPARQL query file |
-| `templates-dir` | `templates` | Directory of `.tid` template tiddlers |
-| `wiki-dir` | `wiki` | TiddlyWiki wiki directory (`tiddlywiki.info` location) |
-| `output-dir` | `dist` | Build output directory for `index.html` |
-
-Example — using non-default paths:
-
+Example `query/02_news.rss`:
 ```yaml
-- uses: OWNER/wikitiddler@v1
-  id: wiki
-  with:
-    query-file: src/my-query.sparql
-    templates-dir: src/templates
+url: "https://news.ycombinator.com/rss"
+items_path: "entries"
+mapping:
+  title: "link"
+  text: "summary"
+  article_title: "title"
+  link: "link"
+  tags: "'[[NewsItem]]'"
 ```
 
-## Action outputs
+Example `query/03_data.json` demonstrating how to flatten nested properties:
+```yaml
+url: "https://dummyjson.com/users"
+items_path: "users"
+mapping:
+  title: "username"
+  text: "userAgent"
+  full_name: "join(' ', [firstName, lastName])"
+  company_name: "company.name"
+  company_department: "company.department"
+  address_city: "address.city"
+  tags: "'[[User]] [[JSONData]]'"
+```
 
-| Output | Description |
-|--------|-------------|
-| `output-dir` | Directory containing the built `index.html` |
+- `url`: The endpoint to fetch.
+- `items_path`: JMESPath to the array of items. For RSS/feedparser, this is usually `"entries"`. For JSON, it might be `"data.results"` or `"@"` (root list).
+- `mapping`: JMESPath queries relative to each item to generate TiddlyWiki fields. 
+  - The `title` mapping is **required** (to uniquely identify the tiddler).
+  - The `text` mapping generates the tiddler body.
+  - Constant strings can be passed in quotes (e.g. `"'NewsItem'"`).
 
 ---
 
@@ -180,81 +198,16 @@ create `wiki/tiddlywiki.info` in your repository:
 
 ---
 
-## Writing the SPARQL query
+## Action inputs
 
-Edit `query/query.sparql`.  The Nobel Prize laureates query in this
-repository is a working example to replace.
+All inputs are optional.
 
-### Required convention
-
-The query **must** include a column named `?item` containing full Wikidata
-entity URIs:
-
-```sparql
-SELECT ?item ?itemLabel …
-WHERE {
-  ?item wdt:P31 wd:Q5 .   # your filter here
-  SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
-}
-```
-
-### Multi-valued properties
-
-Multi-valued properties must be aggregated in the query using `GROUP_CONCAT`
-with a pipe separator.  The action automatically converts the result to
-TiddlyWiki list format (`[[val1]] [[val2]] …`), so your templates can use
-`[list[currentTiddler!!occupations]]` directly.
-
-For human-readable labels in `GROUP_CONCAT`, use explicit `rdfs:label` lookups
-rather than relying on `SERVICE wikibase:label` — the label service does not
-reliably populate label variables inside aggregates:
-
-```sparql
-SELECT
-  ?item
-  ?itemLabel
-  (GROUP_CONCAT(DISTINCT ?occupationLabel; SEPARATOR="|") AS ?occupations)
-WHERE {
-  ?item wdt:P31 wd:Q5 .
-  OPTIONAL {
-    ?item wdt:P106 ?occupationItem .
-    ?occupationItem rdfs:label ?occupationLabel .
-    FILTER(LANG(?occupationLabel) = "en")
-  }
-  SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
-}
-GROUP BY ?item ?itemLabel
-```
-
-`SERVICE wikibase:label` is still used for `?itemLabel` and `?itemDescription`
-on the main item.
-
-### Automatic value conversions
-
-The Python script applies two conversions automatically:
-
-| Input (from Wikidata) | Stored in tiddler |
-|-----------------------|-------------------|
-| `xsd:dateTime` / `xsd:date` literal, e.g. `1941-05-24T00:00:00Z` | TiddlyWiki datetime: `19410524000000000` |
-| Pipe-separated GROUP_CONCAT value, e.g. `novelist\|poet` | TiddlyWiki list: `[[novelist]] [[poet]]` |
-
-### Tiddler body
-
-If the query includes a `?description` column its value becomes the tiddler
-**body** (free text) rather than a named field.
-
-### Field names
-
-SPARQL variable names are lowercased and sanitised to produce valid TiddlyWiki
-field names:
-
-| SPARQL variable | Tiddler field |
-|-----------------|---------------|
-| `?itemLabel` | `itemlabel` |
-| `?birthdate` | `birthdate` |
-| `?occupations` | `occupations` |
-
----
+| Input | Default | Description |
+|-------|---------|-------------|
+| `query-dir` | `query` | Directory containing the query configuration files |
+| `templates-dir` | `templates` | Directory of `.tid` template tiddlers |
+| `wiki-dir` | `wiki` | TiddlyWiki wiki directory (`tiddlywiki.info` location) |
+| `output-dir` | `dist` | Build output directory for `index.html` |
 
 ## Adding TiddlyWiki templates
 
@@ -264,19 +217,6 @@ the wiki at build time and can define:
 - **View templates** to control how item tiddlers render
 - **Stylesheets** (`$:/tags/Stylesheet`)
 - **Macros**, **filters**, navigation tiddlers, etc.
-
-Example template — rendering a multi-valued field as a linked list:
-
-```
-title: $:/templates/WikidataItemView
-tags: $:/tags/ViewTemplate
-list-before: $:/core/ui/ViewTemplate/body
-
-Occupations:
-<$list filter="[list[!!occupations]]">
-  <$link><$text text=<<currentTiddler>>/></$link>
-</$list>
-```
 
 ---
 
@@ -288,7 +228,8 @@ pip install -r requirements.txt
 npm install           # Windows: cmd /c npm install
 
 # Run the pipeline
-python scripts/sparql_to_tiddlers.py
+python scripts/run_importers.py
+python scripts/json_to_tiddlers.py
 npx tiddlywiki wiki --output dist --build index
 
 # Open dist/index.html in a browser
@@ -302,11 +243,7 @@ When referencing this action from your own repo, pin to a release tag rather
 than `@main` to avoid unexpected breaking changes:
 
 ```yaml
-- uses: OWNER/wikitiddler@v1   # stable
+- uses: andjar/wikitiddler@v1   # stable
 # vs.
-- uses: OWNER/wikitiddler@main # always latest — may break
+- uses: andjar/wikitiddler@main # always latest — may break
 ```
-
-Create a release tag in this repository (**Releases → Draft a new release**)
-whenever the pipeline logic changes in a backwards-compatible way, and bump
-the major version for breaking changes.

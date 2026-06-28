@@ -1,5 +1,5 @@
 name: 'wikitiddler'
-description: 'Query Wikidata via SPARQL and build a single-file TiddlyWiki'
+description: 'Query Wikidata, JSON, or RSS and build a single-file TiddlyWiki'
 author: 'wikitiddler'
 branding:
   icon: 'book-open'
@@ -9,10 +9,10 @@ branding:
 # Inputs
 # ---------------------------------------------------------------------------
 inputs:
-  query-file:
-    description: 'Path to the SPARQL query file (relative to repository root)'
+  query-dir:
+    description: 'Directory containing query files (.sparql, .json, .rss) (relative to repository root)'
     required: false
-    default: 'query/query.sparql'
+    default: 'query'
   templates-dir:
     description: 'Directory containing TiddlyWiki template .tid files'
     required: false
@@ -64,13 +64,19 @@ runs:
           echo "Using existing ${{ inputs.wiki-dir }}/tiddlywiki.info"
         fi
 
-    - name: Generate tiddlers from Wikidata
+    - name: Run Importers
       shell: bash
       env:
-        WIKITIDDLER_QUERY_FILE: ${{ inputs.query-file }}
-        WIKITIDDLER_OUTPUT_DIR: ${{ inputs.wiki-dir }}/tiddlers
+        WIKITIDDLER_QUERY_DIR: ${{ inputs.query-dir }}
+        WIKITIDDLER_WIKI_DIR: ${{ inputs.wiki-dir }}
+      run: python "${{ github.action_path }}/scripts/run_importers.py"
+
+    - name: Convert JSON to Tiddlers
+      shell: bash
+      env:
+        WIKITIDDLER_WIKI_DIR: ${{ inputs.wiki-dir }}
         WIKITIDDLER_TEMPLATES_DIR: ${{ inputs.templates-dir }}
-      run: python "${{ github.action_path }}/scripts/sparql_to_tiddlers.py"
+      run: python "${{ github.action_path }}/scripts/json_to_tiddlers.py"
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
